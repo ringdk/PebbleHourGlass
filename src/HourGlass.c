@@ -1,17 +1,6 @@
-#include "pebble_os.h"
-#include "pebble_app.h"
-#include "pebble_fonts.h"
-
+#include "pebble.h"
 
 ////// Macros /////////////////
-
-#define MY_UUID { 0xCD, 0x7B, 0xE9, 0x5B, 0x95, 0xC1, 0x49, 0xF4, 0xB7, 0xEB, 0x6A, 0xCC, 0x8A, 0xB3, 0x0B, 0x5B }
-PBL_APP_INFO(MY_UUID,
-             "Hour Glass", "ringdk",
-             1, 0, /* App version */
-             RESOURCE_ID_HOUR_GLASS_ICON,
-             APP_INFO_WATCH_FACE);
-
 #define MIN(a,b) (a < b ? a : b)
 #define MAX(a,b) (a > b ? a : b)
 
@@ -22,10 +11,15 @@ PBL_APP_INFO(MY_UUID,
 
 ////// Global Variables /////////////////
 
-Window window;
-InverterLayer inverterLayer;
-BmpContainer backgroundImage;
-Layer displayLayer;
+static Window *window;
+static Layer *windowLayer;
+
+static InverterLayer *inverterLayer;
+
+static GBitmap * backgroundImage;
+static BitmapLayer *backgroundLayer;
+
+static Layer *displayLayer;
 
 int sandGrainTick = 0;
 
@@ -188,21 +182,21 @@ const int bottomSandGrainRowAnimationEnd[] = {
 
 ////// Callback Functions /////////////////
 
-void handle_tick(AppContextRef ctx, PebbleTickEvent *event) {
+static void handle_tick(struct tm *tick_time, TimeUnits units_changed) {
   
   // Tell the application to rerender the layer.
-  layer_mark_dirty(&displayLayer);
+  layer_mark_dirty(displayLayer);
 }
 
-void displayLayer_update_callback(Layer *me, GContext* ctx) {
+static void displayLayer_update_callback(Layer *me, GContext* ctx) {
   // If we're not using the layer, this will prevent compile errors.
   (void)me;
   
   // Getting the time
-  PblTm time;
-  get_time( &time );
-  const int minutes = time.tm_min;
-  const int hours   = time.tm_hour;
+  time_t now = time(NULL);
+  struct tm *time = localtime(&now);
+  const int minutes = time->tm_min;
+  const int hours   = time->tm_hour;
   
   // Drawing the top sand grains. We use the 'dropTopSandGrainOrder' array to determine
   // what grains are drawn according the hour. This is set up so the grains will empty
@@ -222,7 +216,7 @@ void displayLayer_update_callback(Layer *me, GContext* ctx) {
   
   // Drawing the bottom sand grains. Same as the above, but instead of emptying, we're
   // filling them up.
-  int numBottomGrainsToDraw = minutes - 1;
+  int numBottomGrainsToDraw = minutes;
   for(int grain=0; grain < numBottomGrainsToDraw; grain++) {
 
     if(grain < 0 || grain >= numBottomSandGrains) // For safety.
@@ -285,45 +279,54 @@ void displayLayer_update_callback(Layer *me, GContext* ctx) {
   sandGrainTick = (sandGrainTick+1) % (BOTTOM_SAND_GRAIN_SIZE*2);
 }
 
-void handle_init(AppContextRef ctx) {
+static void handle_init() {
 
   // Initialise the main window
-  window_init(&window, "Hour Glass");
-  window_stack_push(&window, true);
-  resource_init_current_app(&APP_RESOURCES);
-  
+  window = window_create();
+  windowLayer = window_get_root_layer(window);
+  window_stack_push(window, true /* Animated */);
+
   // Set up our background bitmap, pulled from our resources.
-  bmp_init_container(RESOURCE_ID_HOUR_GLASS_BG, &backgroundImage);
-  layer_add_child(&window.layer, &backgroundImage.layer.layer);
+  backgroundImage=gbitmap_create_with_resource(RESOURCE_ID_HOUR_GLASS_BG);
+  backgroundLayer=bitmap_layer_create(layer_get_frame(windowLayer));
+  bitmap_layer_set_bitmap(backgroundLayer, backgroundImage);
+  layer_add_child(windowLayer, bitmap_layer_get_layer(backgroundLayer));
   
   // Init the layer for the display.
-  layer_init(&displayLayer, window.layer.frame);
-  displayLayer.update_proc = &displayLayer_update_callback;
-  layer_add_child(&window.layer, &displayLayer);
+  displayLayer=layer_create(layer_get_frame(windowLayer));
+  layer_set_update_proc(displayLayer, displayLayer_update_callback);
+  layer_add_child(windowLayer, displayLayer);
   
   // Lastly, set up the in inversion layer to make everything
   // nice and dark.
-  inverter_layer_init(&inverterLayer, GRect(0, 0, WATCH_WIDTH, WATCH_HEIGHT));
-  layer_add_child(&window.layer, &inverterLayer.layer);
+  inverterLayer=inverter_layer_create(GRect(0, 0, WATCH_WIDTH, WATCH_HEIGHT)); 
+  layer_add_child(windowLayer, inverter_layer_get_layer(inverterLayer));
+
+  // tick tock
+  tick_timer_service_subscribe(SECOND_UNIT, handle_tick);
 }
 
-void handle_deinit(AppContextRef ctx) {
-  (void)ctx;
-  
-  // Very important, de-init our bitmap image when we're done with it.
-  bmp_deinit_container(&backgroundImage);
+static void handle_deinit() {
+  tick_timer_service_unsubscribe();
+
+  // Very important, destroy our layers, bitmap, & windows when we're done with them.
+  layer_remove_from_parent(inverter_layer_get_layer(inverterLayer));
+  inverter_layer_destroy(inverterLayer);
+
+  layer_remove_from_parent(displayLayer);
+  layer_destroy(displayLayer);
+
+  layer_remove_from_parent(bitmap_layer_get_layer(backgroundLayer));
+  bitmap_layer_destroy(backgroundLayer);
+  gbitmap_destroy(backgroundImage);
+
+  window_destroy(window);
 }
 
 ////// Watchface Entry-point /////////////////
 
-void pbl_main(void *params) {
-  PebbleAppHandlers handlers = {
-    .init_handler = &handle_init,
-    .deinit_handler = &handle_deinit,
-    .tick_info = {
-      .tick_handler = &handle_tick,
-      .tick_units = SECOND_UNIT
-    }
-  };
-  app_event_loop(params, &handlers);
+int main(void) {
+  handle_init();
+  app_event_loop();
+  handle_deinit();
 }

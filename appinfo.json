@@ -1,0 +1,27 @@
+{
+  "uuid": "cd7be95b-95c1-49f4-b7eb-6acc8ab30b5b",
+  "shortName": "Hour Glass",
+  "longName": "Hour Glass",
+  "companyName": "ringdk",
+  "versionCode": 2,
+  "versionLabel": "2.0.0b7",
+  "watchapp": {
+    "watchface": true
+  },
+  "appKeys": {},
+  "resources": {
+    "media": [
+      {
+        "type": "png",
+        "name": "HOUR_GLASS_BG",
+        "file": "img/bg.png"
+      },
+      {
+        "menuIcon": true,
+        "type": "png",
+        "name": "HOUR_GLASS_ICON",
+        "file": "img/icon.png"
+      }
+    ]
+  }
+}
